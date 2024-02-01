@@ -3,6 +3,7 @@
 
 # Author : AloneMonkey
 # blog: www.alonemonkey.com
+# Forked by NCC Group
 
 from __future__ import print_function
 from __future__ import unicode_literals
@@ -46,11 +47,9 @@ file_dict = {}
 finished = threading.Event()
 
 
-def get_usb_iphone():
-    Type = 'usb'
-    if int(frida.__version__.split('.')[0]) < 12:
-        Type = 'tether'
+def get_remote_iphone(device_ip):
     device_manager = frida.get_device_manager()
+    device_manager.add_remote_device(device_ip)
     changed = threading.Event()
 
     def on_changed():
@@ -59,13 +58,12 @@ def get_usb_iphone():
     device_manager.on('changed', on_changed)
 
     device = None
-    while device is None:
-        devices = [dev for dev in device_manager.enumerate_devices() if dev.type == Type]
-        if len(devices) == 0:
-            print('Waiting for USB device...')
-            changed.wait()
-        else:
-            device = devices[0]
+    devices = [dev for dev in device_manager.enumerate_devices() if dev.name == device_ip]
+    if len(devices) == 0:
+        print('No devices found')
+        exit(1) #changed.wait()
+    else:
+        device = devices[0]
 
     device_manager.off('changed', on_changed)
 
@@ -92,6 +90,32 @@ def generate_ipa(path, display_name):
     except Exception as e:
         print(e)
         finished.set()
+
+def get_usb_iphone():
+    Type = 'usb'
+    if int(frida.__version__.split('.')[0]) < 12:
+        Type = 'tether'
+    device_manager = frida.get_device_manager()
+    changed = threading.Event()
+
+    def on_changed():
+        changed.set()
+
+    device_manager.on('changed', on_changed)
+
+    device = None
+    while device is None:
+        devices = [dev for dev in device_manager.enumerate_devices() if dev.type == Type]
+        if len(devices) == 0:
+            print('Waiting for USB device...')
+            changed.wait()
+        else:
+            device = devices[0]
+
+    device_manager.off('changed', on_changed)
+
+    return device
+
 
 def on_message(message, data):
     t = tqdm(unit='B',unit_scale=True,unit_divisor=1024,miniters=1)
@@ -196,6 +220,7 @@ def cmp_to_key(mycmp):
 
 def get_applications(device):
     try:
+        print(device)
         applications = device.enumerate_applications()
     except Exception as e:
         sys.exit('Failed to enumerate applications: %s' % e)
@@ -292,6 +317,7 @@ def start_dump(session, ipa_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='frida-ios-dump (by AloneMonkey v2.0)')
     parser.add_argument('-l', '--list', dest='list_applications', action='store_true', help='List the installed apps')
+    parser.add_argument('-R', '--remote', dest='is_remote_device', action='store_true', help='Connect to a remote frida server instead of USB')
     parser.add_argument('-o', '--output', dest='output_ipa', help='Specify name of the decrypted IPA')
     parser.add_argument('-H', '--host', dest='ssh_host', help='Specify SSH hostname')
     parser.add_argument('-p', '--port', dest='ssh_port', help='Specify SSH port')
@@ -309,7 +335,13 @@ if __name__ == '__main__':
         parser.print_help()
         sys.exit(exit_code)
 
-    device = get_usb_iphone()
+
+    if args.is_remote_device:
+        device = get_remote_iphone(args.ssh_host)
+    else:
+        device = get_usb_iphone()
+
+
 
     if args.list_applications:
         list_applications(device)
